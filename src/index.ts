@@ -13,8 +13,8 @@ app.use('/api/auth', auth)
 
 app.use('/api/events', events)
 
-app.get('/', (req, res) => {
-  res.send('Videobox Rest-Api')
+app.get('*', (req, res) => {
+  res.send('Api rest VideoBox')
 })
 
 const PORT = server.port ?? 3000
