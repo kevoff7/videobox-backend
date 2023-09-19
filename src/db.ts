@@ -9,9 +9,6 @@ export const pool = new Pool({
   // host: db.host,
   // port: Number(PORT),
   // database: db.database
-  connectionString: dbprod.renderUrl,
-  ssl: {
-    rejectUnauthorized: true
-  }
+  connectionString: dbprod.renderUrl
 
 })
