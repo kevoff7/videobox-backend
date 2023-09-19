@@ -11,7 +11,7 @@ export const pool = new Pool({
   // database: db.database
   connectionString: dbprod.renderUrl,
   ssl: {
-    rejectUnauthorized: false
+    rejectUnauthorized: true
   }
 
 })
