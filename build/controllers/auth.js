@@ -15,12 +15,16 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.addUrlImage = exports.revalidateJWT = exports.loginUser = exports.createUser = void 0;
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const jwt_1 = __importDefault(require("../helpers/jwt"));
-const db_1 = require("../db");
+const users_1 = require("../models/users");
 const createUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { name, email, password, confirmedPassword } = req.body;
     try {
-        const user = yield db_1.pool.query('SELECT * FROM users WHERE email = $1', [email]);
-        if (user.rows.length !== 0) {
+        const user = yield users_1.Users.findOne({
+            where: {
+                email
+            }
+        });
+        if ((user === null || user === void 0 ? void 0 : user.dataValues.email) === email) {
             return res.status(400).json({
                 ok: false,
                 msg: [{ message: 'A user exists with this email' }]
@@ -34,15 +38,17 @@ const createUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         }
         const salt = bcryptjs_1.default.genSaltSync();
         const encryptedPassword = bcryptjs_1.default.hashSync(password, salt);
-        const { rows } = yield db_1.pool.query('INSERT INTO users (email, password, name) VALUES($1, $2, $3) RETURNING *', [email, encryptedPassword, name]);
-        const token = yield (0, jwt_1.default)(rows[0].id, rows[0].name);
+        const newUser = yield users_1.Users.create({
+            name, email, password: encryptedPassword
+        }, { fields: ['name', 'email', 'password'] });
+        const token = yield (0, jwt_1.default)(newUser.dataValues.id, newUser.dataValues.name);
         return res.status(201).json({
             ok: true,
-            name: rows[0].name,
-            id: rows[0].id,
-            urlimage: rows[0].urlimage,
-            follows: rows[0].follows,
-            liked_videos: rows[0].liked_videos,
+            name: newUser.dataValues.name,
+            id: newUser.dataValues.id,
+            urlimage: newUser.dataValues.urlimage,
+            follows: newUser.dataValues.follows,
+            liked_videos: newUser.dataValues.liked_videos,
             token
         });
     }
@@ -57,28 +63,32 @@ exports.createUser = createUser;
 const loginUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { email, password } = req.body;
     try {
-        const { rows } = yield db_1.pool.query('SELECT * FROM users WHERE email = $1', [email]);
-        if (rows.length === 0) {
+        const user = yield users_1.Users.findOne({
+            where: {
+                email
+            }
+        });
+        if ((user === null || user === void 0 ? void 0 : user.dataValues.email) == null) {
             return res.status(400).json({
                 ok: false,
                 msg: [{ message: 'There is no user with email' }]
             });
         }
-        const validPassword = bcryptjs_1.default.compareSync(password, rows[0].password);
+        const validPassword = bcryptjs_1.default.compareSync(password, user === null || user === void 0 ? void 0 : user.dataValues.password);
         if (!validPassword) {
             return res.status(400).json({
                 ok: false,
                 msg: [{ message: 'Password incorrect' }]
             });
         }
-        const token = yield (0, jwt_1.default)(rows[0].id, rows[0].name);
+        const token = yield (0, jwt_1.default)(user === null || user === void 0 ? void 0 : user.dataValues.id, user === null || user === void 0 ? void 0 : user.dataValues.name);
         return res.status(201).json({
             ok: true,
-            id: rows[0].id,
-            name: rows[0].name,
-            urlimage: rows[0].urlimage,
-            follows: rows[0].follows,
-            liked_videos: rows[0].liked_videos,
+            id: user === null || user === void 0 ? void 0 : user.dataValues.id,
+            name: user === null || user === void 0 ? void 0 : user.dataValues.name,
+            urlimage: user === null || user === void 0 ? void 0 : user.dataValues.urlimage,
+            follows: user === null || user === void 0 ? void 0 : user.dataValues.follows,
+            liked_videos: user === null || user === void 0 ? void 0 : user.dataValues.liked_videos,
             token
         });
     }
@@ -93,14 +103,14 @@ exports.loginUser = loginUser;
 const revalidateJWT = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { id, name } = req.user;
     const token = yield (0, jwt_1.default)(id, name);
-    const result = yield db_1.pool.query('SELECT * FROM users WHERE id = $1', [id]);
+    const result = yield users_1.Users.findOne({ where: { id } });
     return res.json({
         ok: true,
-        id,
+        id: result === null || result === void 0 ? void 0 : result.dataValues.id,
         name,
-        urlimage: result.rows[0].urlimage,
-        follows: result.rows[0].follows,
-        liked_videos: result.rows[0].liked_videos,
+        urlimage: result === null || result === void 0 ? void 0 : result.dataValues.urlimage,
+        follows: result === null || result === void 0 ? void 0 : result.dataValues.follows,
+        liked_videos: result === null || result === void 0 ? void 0 : result.dataValues.liked_videos,
         token
     });
 });
@@ -110,24 +120,27 @@ const addUrlImage = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
     const { id } = req.params;
     const { url } = req.body;
     try {
-        const result = yield db_1.pool.query('SELECT * FROM users WHERE id = $1', [id]);
-        if (result.rows.length === 0) {
+        const updateEvent = yield users_1.Users.findByPk(id);
+        if (updateEvent != null) {
+            if (id !== String(user.id)) {
+                return res.status(404).json({ ok: false, msg: [{ message: 'You do not have editing privileges for this event' }] });
+            }
+            updateEvent.urlimage = url;
+            yield updateEvent.save();
+        }
+        else {
             return res.status(404).json({ ok: false, msg: [{ message: 'User not found' }] });
         }
-        if (id !== String(user.id)) {
-            return res.status(404).json({ ok: false, msg: [{ message: 'You do not have editing privileges for this event' }] });
-        }
-        const updateEvent = yield db_1.pool.query('UPDATE users SET urlimage = $1 WHERE id = $2 RETURNING *', [url, id]);
         if (url === null) {
             return res.json({
                 ok: true,
-                img: updateEvent.rows[0].urlimage,
+                img: updateEvent.dataValues.urlimage,
                 msg: 'Correctly remove'
             });
         }
         return res.json({
             ok: true,
-            img: updateEvent.rows[0].urlimage,
+            img: updateEvent.dataValues.urlimage,
             msg: 'Corecctly saved'
         });
     }

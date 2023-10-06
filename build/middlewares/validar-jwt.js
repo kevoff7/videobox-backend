@@ -8,7 +8,7 @@ const config_1 = require("../config");
 const secret = config_1.jwtEnv.secret_seed;
 const validateJWT = (req, res, next) => {
     const token = req.header('x-token');
-    if (token == null) {
+    if (token == null || token === '') {
         return res.status(401).json({
             ok: false,
             msg: 'no hay token en la peticion'

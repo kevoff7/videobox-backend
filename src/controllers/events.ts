@@ -1,16 +1,19 @@
 import { Request, Response } from 'express'
-import { pool } from '../db'
 import { CreateEventSchema, CreateLikeEventsSchemaParams, DeleteEventsSchemaParams, PublishedEventSchemaBody, PublishedEventSchemaParams, UpdateEventsSchemaBody, UpdateEventsSchemaParams } from '../schemas/eventsSchema'
 import { parseVideoUrl } from '../helpers/parseVideoUrl'
+import { Videos } from '../models/videos'
+import { Users } from '../models/users'
 
 export const getEvents = async (_: Request, res: Response) => {
   try {
-    const { rows } = await pool.query(
-      'SELECT * FROM videos'
-    )
+    const videos = await Videos.findAll({
+      attributes: ['id_video', 'url', 'title', 'published', 'id', 'createdAt'],
+      order: [['id_video', 'ASC']]
+    })
+    const allVideos = videos.map(item => item.dataValues)
     return res.status(200).json({
       ok: true,
-      events: rows
+      events: allVideos
     })
   } catch (error) {
     res.status(500).json({
@@ -25,13 +28,12 @@ export const createEvents = async (req: Request<unknown, unknown, CreateEventSch
   const { title, url } = req.body
   try {
     const newUrl = parseVideoUrl(url)
-    const { rows } = await pool.query(
-      'INSERT INTO videos (url, title,id) VALUES($1, $2, $3) RETURNING *',
-      [newUrl, title, user.id]
-    )
+    const newVideo = await Videos.create({
+      title, url: newUrl, id: user.id
+    }, { fields: ['title', 'url', 'id'] })
     return res.json({
       ok: true,
-      event: rows[0],
+      event: newVideo.dataValues,
       msg: [{ message: 'Correctly saved' }]
     })
   } catch (error) {
@@ -46,13 +48,23 @@ export const createLikeEvent = async (req: Request<CreateLikeEventsSchemaParams>
   const { user } = req as any
   const { id } = req.params
   try {
-    const results = await pool.query('SELECT * FROM users WHERE id = $1 AND $2 = ANY(liked_videos)', [user.id, id])
-    if (results.rows.length === 0) {
+    const results: any = await Users.findOne({
+      where: {
+        id: user.id
+      }
+    })
+
+    if (results?.dataValues.liked_videos == null || results.dataValues.liked_videos.includes(Number(id)) === false) {
       try {
-        const result = await pool.query('UPDATE users SET liked_videos = array_append(liked_videos, $2) WHERE id = $1 RETURNING *', [user.id, id])
+        if (results?.dataValues.liked_videos == null) {
+          results.liked_videos = [Number(id)]
+        } else {
+          results.liked_videos = [...results.dataValues.liked_videos, Number(id)]
+        }
+        await results.save()
         res.json({
           ok: true,
-          likedVideos: result.rows[0].liked_videos,
+          likedVideos: results.dataValues.liked_videos,
           msg: 'Saved in the list'
         })
       } catch (error) {
@@ -63,10 +75,17 @@ export const createLikeEvent = async (req: Request<CreateLikeEventsSchemaParams>
       }
     } else {
       try {
-        const result = await pool.query('UPDATE users SET liked_videos = array_remove(liked_videos, $2) WHERE id = $1 RETURNING *', [user.id, id])
+        const likedVideos = results.liked_videos.filter((vid: any) => (vid !== Number(id)))
+        if (likedVideos.length === 0) {
+          results.liked_videos = null
+        } else {
+          results.liked_videos = likedVideos
+        }
+        await results.save()
+
         res.json({
           ok: true,
-          likedVideos: result.rows[0].liked_videos,
+          likedVideos: results.dataValues.liked_videos,
           msg: 'Deleted from the list'
         })
       } catch (error) {
@@ -89,25 +108,32 @@ export const publishedEvent = async (req: Request<PublishedEventSchemaParams, un
   const { id } = req.params
   const { published, idUser } = req.body
   try {
-    const result = await pool.query('SELECT * FROM videos WHERE id_video = $1', [id])
-    if (result.rows.length === 0) {
+    const result: any = await Videos.findOne({
+      where: {
+        id_video: id
+      }
+    })
+    if (result == null) {
       return res.status(404).json({ ok: false, msg: [{ message: 'Video not found' }] })
     }
     if (idUser !== user.id) {
       return res.status(404).json({ ok: false, msg: [{ message: 'You do not have privileges for  this event' }] })
     }
-    const results = await pool.query('UPDATE videos SET published = $1 WHERE id_video = $2 RETURNING *', [published, id])
+
+    result.published = published
+    await result.save()
+
     if (published) {
       return res.json({
         ok: true,
-        video: results.rows[0],
-        msg: [{ message: 'Correctly pusblished video ' }]
+        video: result.dataValues,
+        msg: [{ message: 'Correctly pusblished video' }]
       })
     }
     if (!published) {
       return res.json({
         ok: true,
-        video: results.rows[0],
+        video: result.dataValues,
         msg: [{ message: 'Video successfully unpublished' }]
       })
     }
@@ -132,8 +158,15 @@ export const updateEvents = async (req: Request<UpdateEventsSchemaParams, unknow
     }
     const newUrl = parseVideoUrl(url)
 
-    const results = await pool.query('UPDATE videos SET url = $1, title = $2 WHERE id_video = $3 RETURNING *', [newUrl, title, id])
-    if (results.rows.length === 0) {
+    const results: any = await Videos.findOne({
+      where: { id_video: id }
+    })
+    if (results != null) {
+      results.url = newUrl
+      results.title = title
+
+      await results.save()
+    } else {
       return res.status(401).json({
         ok: false,
         msg: 'Video not found'
@@ -142,7 +175,7 @@ export const updateEvents = async (req: Request<UpdateEventsSchemaParams, unknow
 
     return res.status(200).json({
       ok: true,
-      video: results.rows[0],
+      video: results.dataValues,
       msg: [{ message: 'Event successfully edit' }]
     })
   } catch (error) {
@@ -157,21 +190,25 @@ export const deleteEvents = async (req: Request<DeleteEventsSchemaParams>, res: 
   const { user } = req as any
   const { id } = req.params
   try {
-    const evento = await pool.query('SELECT * FROM videos WHERE id_video = $1', [id])
-    if (evento.rows.length === 0) {
+    const evento = await Videos.findOne({
+      where: { id_video: id }
+    })
+    if (evento == null) {
       return res.status(401).json({
         ok: false,
         msg: 'Video not found'
       })
     }
-    if (user.id !== evento.rows[0].id) {
+    if (user.id !== evento.dataValues.id) {
       res.status(401).json({
         ok: false,
-        msg: 'Please speak to a administrator'
+        msg: 'You do not have privileges to edit this event'
       })
     }
 
-    await pool.query('DELETE FROM videos WHERE id_video = $1', [id])
+    await Videos.destroy({
+      where: { id_video: id }
+    })
 
     res.status(200).json({
       ok: true,

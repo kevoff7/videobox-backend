@@ -10,14 +10,19 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteEvents = exports.updateEvents = exports.publishedEvent = exports.createLikeEvent = exports.createEvents = exports.getEvents = void 0;
-const db_1 = require("../db");
 const parseVideoUrl_1 = require("../helpers/parseVideoUrl");
+const videos_1 = require("../models/videos");
+const users_1 = require("../models/users");
 const getEvents = (_, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { rows } = yield db_1.pool.query('SELECT * FROM videos');
+        const videos = yield videos_1.Videos.findAll({
+            attributes: ['id_video', 'url', 'title', 'published', 'id', 'createdAt'],
+            order: [['id_video', 'ASC']]
+        });
+        const allVideos = videos.map(item => item.dataValues);
         return res.status(200).json({
             ok: true,
-            events: rows
+            events: allVideos
         });
     }
     catch (error) {
@@ -33,10 +38,12 @@ const createEvents = (req, res) => __awaiter(void 0, void 0, void 0, function* (
     const { title, url } = req.body;
     try {
         const newUrl = (0, parseVideoUrl_1.parseVideoUrl)(url);
-        const { rows } = yield db_1.pool.query('INSERT INTO videos (url, title,id) VALUES($1, $2, $3) RETURNING *', [newUrl, title, user.id]);
+        const newVideo = yield videos_1.Videos.create({
+            title, url: newUrl, id: user.id
+        }, { fields: ['title', 'url', 'id'] });
         return res.json({
             ok: true,
-            event: rows[0],
+            event: newVideo.dataValues,
             msg: [{ message: 'Correctly saved' }]
         });
     }
@@ -52,13 +59,23 @@ const createLikeEvent = (req, res) => __awaiter(void 0, void 0, void 0, function
     const { user } = req;
     const { id } = req.params;
     try {
-        const results = yield db_1.pool.query('SELECT * FROM users WHERE id = $1 AND $2 = ANY(liked_videos)', [user.id, id]);
-        if (results.rows.length === 0) {
+        const results = yield users_1.Users.findOne({
+            where: {
+                id: user.id
+            }
+        });
+        if ((results === null || results === void 0 ? void 0 : results.dataValues.liked_videos) == null || results.dataValues.liked_videos.includes(Number(id)) === false) {
             try {
-                const result = yield db_1.pool.query('UPDATE users SET liked_videos = array_append(liked_videos, $2) WHERE id = $1 RETURNING *', [user.id, id]);
+                if ((results === null || results === void 0 ? void 0 : results.dataValues.liked_videos) == null) {
+                    results.liked_videos = [Number(id)];
+                }
+                else {
+                    results.liked_videos = [...results.dataValues.liked_videos, Number(id)];
+                }
+                yield results.save();
                 res.json({
                     ok: true,
-                    likedVideos: result.rows[0].liked_videos,
+                    likedVideos: results.dataValues.liked_videos,
                     msg: 'Saved in the list'
                 });
             }
@@ -71,10 +88,17 @@ const createLikeEvent = (req, res) => __awaiter(void 0, void 0, void 0, function
         }
         else {
             try {
-                const result = yield db_1.pool.query('UPDATE users SET liked_videos = array_remove(liked_videos, $2) WHERE id = $1 RETURNING *', [user.id, id]);
+                const likedVideos = results.liked_videos.filter((vid) => (vid !== Number(id)));
+                if (likedVideos.length === 0) {
+                    results.liked_videos = null;
+                }
+                else {
+                    results.liked_videos = likedVideos;
+                }
+                yield results.save();
                 res.json({
                     ok: true,
-                    likedVideos: result.rows[0].liked_videos,
+                    likedVideos: results.dataValues.liked_videos,
                     msg: 'Deleted from the list'
                 });
             }
@@ -99,25 +123,30 @@ const publishedEvent = (req, res) => __awaiter(void 0, void 0, void 0, function*
     const { id } = req.params;
     const { published, idUser } = req.body;
     try {
-        const result = yield db_1.pool.query('SELECT * FROM videos WHERE id_video = $1', [id]);
-        if (result.rows.length === 0) {
+        const result = yield videos_1.Videos.findOne({
+            where: {
+                id_video: id
+            }
+        });
+        if (result == null) {
             return res.status(404).json({ ok: false, msg: [{ message: 'Video not found' }] });
         }
         if (idUser !== user.id) {
             return res.status(404).json({ ok: false, msg: [{ message: 'You do not have privileges for  this event' }] });
         }
-        const results = yield db_1.pool.query('UPDATE videos SET published = $1 WHERE id_video = $2 RETURNING *', [published, id]);
+        result.published = published;
+        yield result.save();
         if (published) {
             return res.json({
                 ok: true,
-                video: results.rows[0],
-                msg: [{ message: 'Correctly pusblished video ' }]
+                video: result.dataValues,
+                msg: [{ message: 'Correctly pusblished video' }]
             });
         }
         if (!published) {
             return res.json({
                 ok: true,
-                video: results.rows[0],
+                video: result.dataValues,
                 msg: [{ message: 'Video successfully unpublished' }]
             });
         }
@@ -142,8 +171,15 @@ const updateEvents = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             });
         }
         const newUrl = (0, parseVideoUrl_1.parseVideoUrl)(url);
-        const results = yield db_1.pool.query('UPDATE videos SET url = $1, title = $2 WHERE id_video = $3 RETURNING *', [newUrl, title, id]);
-        if (results.rows.length === 0) {
+        const results = yield videos_1.Videos.findOne({
+            where: { id_video: id }
+        });
+        if (results != null) {
+            results.url = newUrl;
+            results.title = title;
+            yield results.save();
+        }
+        else {
             return res.status(401).json({
                 ok: false,
                 msg: 'Video not found'
@@ -151,7 +187,7 @@ const updateEvents = (req, res) => __awaiter(void 0, void 0, void 0, function* (
         }
         return res.status(200).json({
             ok: true,
-            video: results.rows[0],
+            video: results.dataValues,
             msg: [{ message: 'Event successfully edit' }]
         });
     }
@@ -167,20 +203,24 @@ const deleteEvents = (req, res) => __awaiter(void 0, void 0, void 0, function* (
     const { user } = req;
     const { id } = req.params;
     try {
-        const evento = yield db_1.pool.query('SELECT * FROM videos WHERE id_video = $1', [id]);
-        if (evento.rows.length === 0) {
+        const evento = yield videos_1.Videos.findOne({
+            where: { id_video: id }
+        });
+        if (evento == null) {
             return res.status(401).json({
                 ok: false,
                 msg: 'Video not found'
             });
         }
-        if (user.id !== evento.rows[0].id) {
+        if (user.id !== evento.dataValues.id) {
             res.status(401).json({
                 ok: false,
-                msg: 'Please speak to a administrator'
+                msg: 'You do not have privileges to edit this event'
             });
         }
-        yield db_1.pool.query('DELETE FROM videos WHERE id_video = $1', [id]);
+        yield videos_1.Videos.destroy({
+            where: { id_video: id }
+        });
         res.status(200).json({
             ok: true,
             msg: [{ message: 'Correctly deleted' }]

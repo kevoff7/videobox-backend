@@ -6,7 +6,7 @@ const secret = jwtEnv.secret_seed as string
 
 const validateJWT = (req: any, res: Response, next: NextFunction) => {
   const token = req.header('x-token')
-  if (token == null) {
+  if (token == null || token === '') {
     return res.status(401).json({
       ok: false,
       msg: 'no hay token en la peticion'

@@ -1,30 +1,20 @@
-import express from 'express'
-import auth from './routes/auth'
-import events from './routes/events'
+import app from './app'
+
 import { server } from './config'
-import cors from 'cors'
-
-const app = express()
-
-app.use(cors({
-  origin: 'https://video-box-kevoff.vercel.app',
-  credentials: true
-}))
-
-app.use(cors())
-
-app.use(express.json())
-
-app.use('/api/auth', auth)
-
-app.use('/api/events', events)
-
-app.get('*', (req, res) => {
-  res.send('Api rest VideoBox')
-})
+import sequelize from './database/database'
 
 const PORT = server.port ?? 3000
 
-app.listen(PORT, () => {
-  console.log(`Service running in port ${PORT}`)
-})
+async function main () {
+  try {
+    await sequelize.sync({ force: false })
+    app.listen(PORT, () => {
+      console.log(`Service running in port ${PORT}`)
+    })
+  } catch (error) {
+    console.log('fallo la db')
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-floating-promises
+main()
