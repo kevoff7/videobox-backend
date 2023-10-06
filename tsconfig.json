@@ -106,9 +106,4 @@
     "dist",
     "client"
   ],
-  "include": [
-    "./api/*.ts",
-    "./*.js",
-    "src/**/*.ts",
-  ]
 }
