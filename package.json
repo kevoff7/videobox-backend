@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "ts-node-dev src/index.ts",
     "lint": "ts-standard",
-    "start": "node build/index.js",
-    "tsc": "tsc"
+    "start": "ts-node-dev src/index.ts",
+    "build": "tsc"
   },
   "keywords": [],
   "author": "",
